@@ -2,6 +2,7 @@
 // It reads your Stripe secret key from an environment variable — it is
 // never written into this file and never sent to the browser.
 import Stripe from "stripe";
+import { getAvailability, validDate, overlaps } from "../lib/availability.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
 
@@ -27,6 +28,16 @@ export default async function handler(req, res) {
   const { firstName, lastName, email, phone, checkIn, checkOut } = req.body || {};
   if (!email || !firstName) {
     return res.status(400).json({ error: "Missing name or email." });
+  }
+
+  if (!validDate(checkIn) || !validDate(checkOut) || checkIn >= checkOut) {
+    return res.status(400).json({error:'Please select valid check-in and check-out dates.'});
+  }
+  try {
+    const ranges = await getAvailability();
+    if (overlaps(ranges, checkIn, checkOut)) return res.status(409).json({error:'These dates are unavailable. Please choose another stay.'});
+  } catch {
+    return res.status(503).json({error:'Availability could not be verified. Please contact Harmony before paying.'});
   }
 
   const origin = req.headers.origin || `https://${req.headers.host}`;
