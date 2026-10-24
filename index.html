@@ -589,7 +589,23 @@ for(let i=1;i<=5;i++){const b=document.createElement("button");b.type="button";b
 const mail=(subj,body)=>{const a=document.createElement("a");a.href="mailto:"+CFG.email+"?subject="+encodeURIComponent(subj)+"&body="+encodeURIComponent(body);a.target="_blank";a.rel="noopener";a.click()};
 const v=id=>document.getElementById(id).value.trim();
 
-const BOOKED=[]; // unavailable ranges, inclusive: ["2026-10-03","2026-10-10"]
+let BOOKED=[];
+let availabilityReady=false;
+async function refreshAvailability(){
+  availabilityReady=false;renderCal();
+  try{
+    const response=await fetch('/api/availability',{cache:'no-store'});
+    if(!response.ok)throw new Error('Availability unavailable');
+    const data=await response.json();
+    if(!Array.isArray(data.ranges))throw new Error('Invalid availability');
+    BOOKED=data.ranges;availabilityReady=true;
+    if(s1&&booked(s1)||s2&&booked(s2)||s1&&s2&&!rangeOk(s1,s2)){s1=null;s2=null;syncDates()}
+    document.getElementById('availabilityStatus').textContent=L==='es'?'Disponibilidad actualizada.':'Availability updated.';
+  }catch{
+    document.getElementById('availabilityStatus').textContent=L==='es'?'No pudimos verificar las fechas. Llámanos antes de reservar.':'We could not verify dates. Please call before booking.';
+  }
+  renderCal();return availabilityReady;
+}
 const pad=n=>String(n).padStart(2,"0"),ds=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
 const now=new Date(),tk=ds(now),booked=k=>BOOKED.some(r=>k>=r[0]&&k<=r[1]);
 let vy=now.getFullYear(),vm=now.getMonth(),s1=null,s2=null;
@@ -603,7 +619,7 @@ const box=document.getElementById("cd");box.replaceChildren();
 for(let i=0;i<new Date(vy,vm,1).getDay();i++)box.appendChild(document.createElement("span"));
 for(let d=1;d<=new Date(vy,vm+1,0).getDate();d++){const k=vy+"-"+pad(vm+1)+"-"+pad(d),b=document.createElement("button");b.type="button";b.textContent=d;
 b.setAttribute("aria-label",new Date(vy,vm,d).toLocaleDateString(loc,{dateStyle:"full"}));
-if(booked(k)){b.className="u";b.disabled=true}else if(k<tk){b.className="p";b.disabled=true}
+if(!availabilityReady){b.disabled=true}else if(booked(k)){b.className="u";b.disabled=true}else if(k<tk){b.className="p";b.disabled=true}
 else{if(k===s1||k===s2)b.className="s";else if(s1&&s2&&k>s1&&k<s2)b.className="in";b.onclick=()=>pickDay(k)}
 box.appendChild(b)}}
 document.getElementById("cp").onclick=()=>{if(vy*12+vm-1<now.getFullYear()*12+now.getMonth())return;vm--;if(vm<0){vm=11;vy--}renderCal()};
@@ -611,6 +627,11 @@ document.getElementById("cn").onclick=()=>{vm++;if(vm>11){vm=0;vy++}renderCal()}
 document.getElementById("ci").onchange=e=>{s1=e.target.value||null;if(s2&&s1&&s1>=s2)s2=null;renderCal()};
 document.getElementById("co").onchange=e=>{s2=e.target.value||null;renderCal()};
 renderCal();
+const availabilityStatus=document.createElement('p');availabilityStatus.id='availabilityStatus';availabilityStatus.setAttribute('role','status');
+availabilityStatus.textContent='Checking availability…';document.getElementById('cd').parentElement.appendChild(availabilityStatus);
+refreshAvailability();
+setInterval(refreshAvailability,60000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshAvailability()});
 const T=(en,es)=>L==="es"?es:en,sel=id=>{const s=document.getElementById(id);return s.options[s.selectedIndex].text},fv=(p,id)=>document.getElementById(p+id).value.trim();
 const details=p=>[[T("Name","Nombre"),fv(p,"fn")+" "+fv(p,"ln")],[T("Phone","Teléfono"),fv(p,"ph")],[T("Email","Correo"),fv(p,"em")],[T("Check-in","Llegada"),fv(p,"ci")],[T("Check-out","Salida"),fv(p,"co")],[T("Room type","Tipo de habitación"),sel(p+"rt")],[T("Procedure","Procedimiento"),sel(p+"pr")],[T("Surgeon","Cirujano"),fv(p,"sg")],[T("Surgery center","Centro quirúrgico"),fv(p,"ct")]];
 const fmt=(rows,p)=>rows.map(r=>r.join(": ")).join("\n")+"\n\n"+fv(p,"ms");
@@ -634,6 +655,8 @@ async function startCheckout(e){
 e.preventDefault();
 const qfEl=document.getElementById("qf");
 if(!qfEl.reportValidity())return;
+if(!await refreshAvailability()){alert(T('Please call to confirm availability.','Llámanos para confirmar la disponibilidad.'));return}
+if(!v('ci')||!v('co')||v('ci')>=v('co')||v('ci')<tk||!rangeOk(v('ci'),v('co'))){alert(T('Please select available dates.','Selecciona fechas disponibles.'));return}
 const old=payBtn.textContent;payBtn.textContent=T("Redirecting…","Redirigiendo…");payBtn.setAttribute("aria-disabled","true");payBtn.style.pointerEvents="none";
 try{
 const r=await fetch(CFG.checkoutEndpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({firstName:v("fn"),lastName:v("ln"),email:v("em"),phone:v("ph"),checkIn:v("ci"),checkOut:v("co")})});
